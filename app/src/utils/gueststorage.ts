@@ -7,7 +7,10 @@ export interface Guest {
   purpose: string
   arrivalTime: string
   createdAt: string
+  ktpUrl?: string | null
 }
+
+const BUCKET = "ktp-letters"
 
 const mapGuestData = (row: any): Guest => ({
   id: row.id,
@@ -16,91 +19,100 @@ const mapGuestData = (row: any): Guest => ({
   purpose: row.purpose,
   arrivalTime: row.arrival_time,
   createdAt: row.created_at,
+  ktpUrl: row.ktp_url ?? null,
 })
 
+// ✅ Upload PDF helper — return path atau null
+async function uploadPdf(file: File): Promise<string | null> {
+  const fileName = `${Date.now()}_${file.name}`
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .upload(fileName, file)
+  if (error) { console.error("Upload error:", error); return null }
+  return data.path
+}
+
 export const getGuests = async (): Promise<Guest[]> => {
-  const { data: userData } = await supabase.auth.getUser()
-  if (!userData.user) return []
-
   const { data, error } = await supabase
-    .from('guests')
-    .select('*')
-    .eq('user_id', userData.user.id)  // ← filter by user
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    console.error('Error fetching guests:', error)
-    return []
-  }
+    .from("guests")
+    .select("*")
+    .order("created_at", { ascending: false })
+  if (error) { console.error(error); return [] }
   return data.map(mapGuestData)
 }
 
-export const addGuest = async (guestData: Omit<Guest, 'id' | 'createdAt'>): Promise<Guest | null> => {
-  const {data: UserData} = await supabase.auth.getUser()
-  if(!UserData.user){ 
-    return null
-  }
-  const { data, error } = await supabase.from('guests').insert({
-    name: guestData.name,
-    company: guestData.company,
-    purpose: guestData.purpose,
-    arrival_time: guestData.arrivalTime,
-    user_id: UserData.user.id, 
-  })
-  .select()
-  .single()
+// ✅ addGuest terima File opsional
+export const addGuest = async (
+  guestData: Omit<Guest, "id" | "createdAt">,
+  pdfFile?: File | null
+): Promise<Guest | null> => {
+  let ktp_url = guestData.ktpUrl ?? null
+  if (pdfFile) ktp_url = await uploadPdf(pdfFile)
 
-  if (error) {
-    console.error('Error adding guest:', error)
-    return null
-  }
+  const { data, error } = await supabase
+    .from("guests")
+    .insert({
+      name: guestData.name,
+      company: guestData.company,
+      purpose: guestData.purpose,
+      arrival_time: guestData.arrivalTime,
+      ktp_url,
+    })
+    .select()
+    .single()
 
+  if (error) { console.error(error); return null }
   return mapGuestData(data)
 }
 
-export const updateGuest = async (id: string, guestData: Partial<Guest>): Promise<boolean> => { 
-  const {error } = await supabase.from('guests').update({
-    name: guestData.name,
-    company: guestData.company,
-    purpose: guestData.purpose,
-    arrival_time: guestData.arrivalTime,
-  }).eq('id', id)
+// ✅ updateGuest terima File opsional — upload PDF baru jika ada
+export const updateGuest = async (
+  id: string,
+  guestData: Partial<Guest>,
+  newPdfFile?: File | null
+): Promise<boolean> => {
+  let ktp_url = guestData.ktpUrl ?? null
 
-  if (error) {
-    console.error('Error updating guest:', error)
-    return false
-  }
-  
+  // Jika ada file PDF baru, upload dulu
+  if (newPdfFile) ktp_url = await uploadPdf(newPdfFile)
+
+  const { error } = await supabase
+    .from("guests")
+    .update({
+      name: guestData.name,
+      company: guestData.company,
+      purpose: guestData.purpose,
+      arrival_time: guestData.arrivalTime,
+      ktp_url,  // ✅ update dengan path baru atau tetap path lama
+    })
+    .eq("id", id)
+
+  if (error) { console.error(error); return false }
   return true
 }
 
-export const deleteGuest = async (id: string): Promise<boolean> => { 
-  const {error} = await supabase
-  .from('guests')
-  .delete()
-  .eq('id', id)
-
-  if (error) {
-    console.error('Error deleting guest:', error)
-    return false
-  }
+export const deleteGuest = async (id: string): Promise<boolean> => {
+  const { error } = await supabase.from("guests").delete().eq("id", id)
+  if (error) { console.error(error); return false }
   return true
 }
 
-export const searchGuest = async (keyword: string): Promise<Guest[]> => { 
-  const { data: userData } = await supabase.auth.getUser()
-  if (!userData.user) return []
-
+export const searchGuest = async (keyword: string): Promise<Guest[]> => {
+  const kw = `%${keyword}%`
   const { data, error } = await supabase
-    .from('guests')
-    .select('*')
-    .eq('user_id', userData.user.id)
-    .or(`name.ilike.%${keyword}%,company.ilike.%${keyword}%,purpose.ilike.%${keyword}%`)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    console.error('Error searching guests:', error)
-    return []
-  }
+    .from("guests")
+    .select("*")
+    .or(`name.ilike.${kw},company.ilike.${kw},purpose.ilike.${kw}`)
+    .order("created_at", { ascending: false })
+  if (error) { console.error(error); return [] }
   return data.map(mapGuestData)
+}
+
+// ✅ Generate signed URL — hanya admin yang bisa akses
+export const getSignedUrl = async (path: string): Promise<string | null> => {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60)
+  if (error) { console.error(error); return null }
+  return data.signedUrl
 }
