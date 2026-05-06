@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { getSignedUrl } from "../../utils/gueststorage"
 import type { Guest } from "../../utils/gueststorage"
 
@@ -8,6 +9,8 @@ interface GuestCardProps {
 }
 
 export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
+  const [loadingPdf, setLoadingPdf] = useState(false)
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString("id-ID", {
       year: "numeric",
@@ -18,12 +21,22 @@ export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
     })
   }
 
-  // ✅ Buka PDF via signed URL (hanya admin yang bisa)
   const handleViewPdf = async () => {
-    if (!guest.ktpUrl) return
-    const url = await getSignedUrl(guest.ktpUrl)
-    if (url) window.open(url, "_blank")
-    else alert("Gagal membuka dokumen")
+    if (!guest.ktpUrl || loadingPdf) return
+    setLoadingPdf(true)
+    try {
+      const url = await getSignedUrl(guest.ktpUrl)
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer")
+      } else {
+        alert("Gagal mendapatkan link dokumen")
+      }
+    } catch (error) {
+      console.error("Error opening PDF:", error)
+      alert("Terjadi kesalahan saat membuka dokumen")
+    } finally {
+      setLoadingPdf(false)
+    }
   }
 
   return (
@@ -65,18 +78,18 @@ export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
           <span className="text-gray-900 dark:text-gray-100">{formatDate(guest.arrivalTime)}</span>
         </div>
 
-        {/* ✅ Tampilkan tombol PDF hanya jika ada file */}
         {guest.ktpUrl ? (
           <div className="flex items-center text-sm pt-1">
             <span className="text-gray-500 dark:text-gray-400 w-24 flex-shrink-0">Dokumen:</span>
             <button
               onClick={handleViewPdf}
-              className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 font-medium hover:underline transition-colors"
+              disabled={loadingPdf}
+              className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 font-medium hover:underline transition-colors disabled:opacity-50"
             >
               <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
               </svg>
-              Lihat KTP / Surat
+              {loadingPdf ? "Membuka..." : "Lihat KTP / Surat"}
             </button>
           </div>
         ) : (
