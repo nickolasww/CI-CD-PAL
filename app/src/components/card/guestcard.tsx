@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react"
 import { getSignedUrl } from "../../utils/gueststorage"
 import type { Guest } from "../../utils/gueststorage"
 
@@ -8,6 +9,17 @@ interface GuestCardProps {
 }
 
 export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+
+  // Pre-fetch signed URL saat card mount — bukan saat klik
+  // Sehingga anchor href sudah siap dan tidak ada async saat user klik
+  useEffect(() => {
+    if (!guest.ktpUrl) return
+    getSignedUrl(guest.ktpUrl).then(url => {
+      if (url) setPdfUrl(url)
+    })
+  }, [guest.ktpUrl])
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString("id-ID", {
       year: "numeric",
@@ -16,37 +28,6 @@ export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
       hour: "2-digit",
       minute: "2-digit",
     })
-  }
-
-  const handleViewPdf = async () => {
-    if (!guest.ktpUrl) return
-
-    // HARUS buka window SEBELUM await
-    const newTab = window.open("", "_blank")
-    if (!newTab) {
-      alert("Popup diblokir browser. Izinkan popup untuk situs ini.")
-      return
-    }
-
-    // Tulis loading page agar tab tidak blank saat menunggu
-    newTab.document.write(`
-      <html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f9f9f9">
-        <p style="color:#555;font-size:16px">⏳ Memuat dokumen...</p>
-      </body></html>
-    `)
-
-    const url = await getSignedUrl(guest.ktpUrl)
-
-    if (url) {
-      // replace() tidak tambah history entry, lebih bersih dari .href
-      newTab.location.replace(url)
-    } else {
-      newTab.document.write(`
-        <html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-          <p style="color:red;font-size:16px">❌ Gagal memuat dokumen. Silakan coba lagi.</p>
-        </body></html>
-      `)
-    }
   }
 
   return (
@@ -88,25 +69,27 @@ export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
           <span className="text-gray-900 dark:text-gray-100">{formatDate(guest.arrivalTime)}</span>
         </div>
 
-        {guest.ktpUrl ? (
-          <div className="flex items-center text-sm pt-1">
-            <span className="text-gray-500 dark:text-gray-400 w-24 flex-shrink-0">Dokumen:</span>
-            <button
-              onClick={handleViewPdf}
+        <div className="flex items-center text-sm pt-1">
+          <span className="text-gray-500 dark:text-gray-400 w-24 flex-shrink-0">Dokumen:</span>
+
+          {pdfUrl ? (
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 font-medium hover:underline transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
               </svg>
               Lihat KTP / Surat
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center text-sm pt-1">
-            <span className="text-gray-500 dark:text-gray-400 w-24 flex-shrink-0">Dokumen:</span>
+            </a>
+          ) : guest.ktpUrl ? (
+            <span className="text-xs text-gray-400 italic">Memuat...</span>
+          ) : (
             <span className="text-xs text-gray-400 italic">Tidak ada dokumen</span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )
