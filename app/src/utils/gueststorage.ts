@@ -21,8 +21,8 @@ const mapGuestData = (row: any): Guest => ({
   createdAt: row.created_at,
   ktpUrl: row.ktp_url ?? null,
 })
-const urlCache: Record<string, { url: string; expiresAt: number }> = {}
 
+// Upload PDF helper — return path saja (bukan signed URL)
 async function uploadPdf(file: File): Promise<string | null> {
   const fileName = `${Date.now()}_${file.name}`
   const { data, error } = await supabase.storage
@@ -30,6 +30,22 @@ async function uploadPdf(file: File): Promise<string | null> {
     .upload(fileName, file)
   if (error) { console.error("Upload error:", error); return null }
   return data.path
+}
+
+// Ekstrak storage path dari full signed URL (untuk data lama di DB)
+// Input:  "https://xxx.supabase.co/storage/v1/object/sign/ktp-letters/1234_file.pdf?token=..."
+// Output: "1234_file.pdf"
+function extractStoragePath(ktpUrl: string): string {
+  try {
+    const url = new URL(ktpUrl)
+    const prefix = `/storage/v1/object/sign/${BUCKET}/`
+    if (url.pathname.startsWith(prefix)) {
+      return decodeURIComponent(url.pathname.slice(prefix.length))
+    }
+  } catch {
+    // bukan URL valid, anggap sudah berupa path langsung
+  }
+  return ktpUrl
 }
 
 export const getGuests = async (): Promise<Guest[]> => {
@@ -41,6 +57,7 @@ export const getGuests = async (): Promise<Guest[]> => {
   return data.map(mapGuestData)
 }
 
+// addGuest terima File opsional
 export const addGuest = async (
   guestData: Omit<Guest, "id" | "createdAt">,
   pdfFile?: File | null
@@ -64,6 +81,7 @@ export const addGuest = async (
   return mapGuestData(data)
 }
 
+// updateGuest terima File opsional — upload PDF baru jika ada
 export const updateGuest = async (
   id: string,
   guestData: Partial<Guest>,
@@ -71,6 +89,7 @@ export const updateGuest = async (
 ): Promise<boolean> => {
   let ktp_url = guestData.ktpUrl ?? null
 
+  // Jika ada file PDF baru, upload dulu
   if (newPdfFile) ktp_url = await uploadPdf(newPdfFile)
 
   const { error } = await supabase
@@ -80,7 +99,7 @@ export const updateGuest = async (
       company: guestData.company,
       purpose: guestData.purpose,
       arrival_time: guestData.arrivalTime,
-      ktp_url,
+      ktp_url,  //  update dengan path baru atau tetap path lama
     })
     .eq("id", id)
 
@@ -105,26 +124,13 @@ export const searchGuest = async (keyword: string): Promise<Guest[]> => {
   return data.map(mapGuestData)
 }
 
+// Generate signed URL — hanya admin yang bisa akses
+// Handle data lama yang menyimpan full signed URL, bukan path
 export const getSignedUrl = async (path: string): Promise<string | null> => {
-  const now = Date.now()
-  const cached = urlCache[path]
-
-  if (cached && cached.expiresAt - now > 30_000) {
-    return cached.url
-  }
-
-  const EXPIRY_SECONDS = 300 // 5 menit
+  const storagePath = extractStoragePath(path)
   const { data, error } = await supabase.storage
     .from(BUCKET)
-    .createSignedUrl(path, EXPIRY_SECONDS)
-
+    .createSignedUrl(storagePath, 60)
   if (error) { console.error(error); return null }
-
-  // Simpan ke cache
-  urlCache[path] = {
-    url: data.signedUrl,
-    expiresAt: now + EXPIRY_SECONDS * 1000,
-  }
-
   return data.signedUrl
 }
