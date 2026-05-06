@@ -21,19 +21,21 @@ export default function GuestCard({ guest, onEdit, onDelete }: GuestCardProps) {
   const handleViewPdf = async () => {
     if (!guest.ktpUrl) return
 
-    const newTab = window.open("", "_blank")
-    if (!newTab) {
-      alert("Popup diblokir browser. Izinkan popup untuk situs ini.")
+    const url = await getSignedUrl(guest.ktpUrl)
+    if (!url) {
+      alert("Gagal membuka dokumen")
       return
     }
 
-    const url = await getSignedUrl(guest.ktpUrl)
-    if (url) {
-      newTab.location.href = url
-    } else {
-      newTab.close()
-      alert("Gagal membuka dokumen")
-    }
+    // Anchor click lebih reliable dari window.open() setelah await
+    // karena tidak tergantung popup-blocker browser
+    const a = document.createElement("a")
+    a.href = url
+    a.target = "_blank"
+    a.rel = "noopener noreferrer"
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   return (
