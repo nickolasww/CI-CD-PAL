@@ -6,6 +6,9 @@ import { isAuthenticated, getCurrentUser, updateUserProfile } from "../../utils/
 import Navbar from "../../components/navbar"
 
 export default function ProfilePage() {
+  const [lastSignInAt, setLastSignInAt] = useState("")
+  const [updatedAt, setUpdatedAt] = useState("")
+  const [email, setEmail] = useState("")
   const [fullName, setFullName] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState("")
@@ -14,15 +17,18 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const init = async () => {
-      const authed = await isAuthenticated()  // async
+      const authed = await isAuthenticated()
       if (!authed) {
         navigate("/")
         return
       }
 
-      const user = await getCurrentUser()  // async
+      const user = await getCurrentUser()
       if (user) {
         setFullName(user.fullName || user.email || "")
+        setEmail(user.email || "")
+        setLastSignInAt(user.last_sign_in_at || "")
+        setUpdatedAt(user.updated_at || "")
       }
 
       setIsChecking(false)
@@ -37,17 +43,21 @@ export default function ProfilePage() {
     setMessage("")
 
     try {
-      await updateUserProfile(fullName)
+      await updateUserProfile(fullName, email, updatedAt, lastSignInAt)
       setMessage("Profile berhasil diperbarui!")
       window.dispatchEvent(new Event("storage"))
       setTimeout(() => {
-        navigate("/")
+        navigate("/dashboard")
       }, 1500)
     } catch (err) {
       setMessage("Terjadi kesalahan saat memperbarui profile")
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleCancel = () => {
+    navigate("/dashboard")
   }
 
   if (isChecking) {
@@ -71,7 +81,7 @@ export default function ProfilePage() {
             <form onSubmit={handleSubmit} className="mt-5">
               <div className="w-full">
                 <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Email
+                  FullName
                 </label>
                 <div className="mt-1">
                   <input
@@ -85,6 +95,54 @@ export default function ProfilePage() {
                     placeholder="Masukkan nama lengkap"
                   />
                 </div>
+
+                <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
+                  Email
+                </label>
+                <div className="mt-1">
+                  <input
+                    type="text"
+                    name="email"
+                    id="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    placeholder="Masukkan email"
+                  />
+                </div>
+
+                  <label htmlFor="lastSignInAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
+                    Terakhir Masuk
+                  </label>
+                <div className="mt-1">
+                  <input
+                    type="text"
+                    name="lastSignInAt"
+                    id="lastSignInAt"
+                    value={`${new Date(lastSignInAt).toLocaleString()}`}
+                    disabled
+                    className="shadow-sm p-2 block w-full sm:text-sm border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                    />
+                </div>
+
+                <div> 
+                  <label htmlFor="updatedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
+                    Terakhir Diperbarui
+                  </label>
+                
+                <div className="mt-1">
+                  <input
+                    type="text"
+                    name="updatedAt"
+                    id="updatedAt"
+                    value={`${new Date(updatedAt).toLocaleString()}`}
+                    disabled
+                    className="shadow-sm p-2 block w-full sm:text-sm border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-600 text-gray-500
+                    dark:text-gray-400 cursor-not-allowed"
+                    />
+                </div>
+                    </div>
               </div>
 
               {message && (
@@ -102,7 +160,7 @@ export default function ProfilePage() {
               <div className="mt-5 flex justify-end space-x-3">
                 <button
                   type="button"
-                  onClick={() => navigate("/")}
+                  onClick={handleCancel}
                   className="bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   Batal
