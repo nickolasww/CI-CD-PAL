@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { isAuthenticated, getCurrentUser, updateUserProfile } from "../../utils/auth"
 import Navbar from "../../components/navbar"
+import { useAuth } from "../../context/AuthContext"
 
 export default function ProfilePage() {
   const [lastSignInAt, setLastSignInAt] = useState("")
@@ -14,6 +15,7 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("")
   const navigate = useNavigate()
   const [isChecking, setIsChecking] = useState(true)
+  const { profile } = useAuth()
 
   useEffect(() => {
     const init = async () => {
@@ -47,7 +49,7 @@ export default function ProfilePage() {
       setMessage("Profile berhasil diperbarui!")
       window.dispatchEvent(new Event("storage"))
       setTimeout(() => {
-        navigate("/dashboard")
+        navigate(profile?.role === "admin" ? "/dashboard" : "/")
       }, 1500)
     } catch (err) {
       setMessage("Terjadi kesalahan saat memperbarui profile")
@@ -57,7 +59,7 @@ export default function ProfilePage() {
   }
 
   const handleCancel = () => {
-    navigate("/dashboard")
+    navigate(profile?.role === "admin" ? "/dashboard" : "/")
   }
 
   if (isChecking) {
