@@ -11,22 +11,17 @@ const LoginPage = () => {
 useEffect(() => {
   const checkAuth = async () => {
     const { data } = await supabase.auth.getSession()
-    
-    // ✅ Pastikan session benar-benar valid, bukan sisa cache
     if (!data.session || !data.session.user) return
-
-    // ✅ Double check dengan getUser() — ini hit server langsung
-    const { data: userData, error } = await supabase.auth.getUser()
-    if (error || !userData.user) return
 
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
-      .eq("id", userData.user.id)
+      .eq("id", data.session.user.id)
       .single()
 
     navigate(profile?.role === "admin" ? "/dashboard" : "/")
   }
+
   checkAuth()
 }, [navigate])
 
@@ -53,7 +48,7 @@ const handleSubmit = async (e: React.FormEvent) => {
       .single()
 
     // Admin ke dashboard, selain itu ke homepage
-    window.location.href = profile?.role === "admin" ? "/dashboard" : "/"
+    navigate(profile?.role === "admin" ? "/dashboard" : "/")
 
   } catch {
     setError("Terjadi kesalahan, silakan coba lagi")

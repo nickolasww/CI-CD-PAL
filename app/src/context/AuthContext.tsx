@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode} from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode} from 'react'
 import { supabase } from '../lib/supabase'
-import type { User } from '@supabase/supabase-js'
+import type { Session, User } from '@supabase/supabase-js'
 
 interface Profile {
   id: string
@@ -13,6 +13,7 @@ interface AuthContextType {
   user: User | null
   profile: Profile | null
   loading: boolean
+  profileLoading: boolean
   signOut: () => Promise<void>
 }
 
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
+  profileLoading: false,
   signOut: async () => {},
 })
 
@@ -27,36 +29,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const lastProfileUserIdRef = useRef<string | null>(null)
 
   async function fetchProfile(userId: string) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    if (!error && data) setProfile(data as Profile)
+    setProfileLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, role')
+        .eq('id', userId)
+        .single()
+
+      if (error || !data) {
+        setProfile(null)
+        return
+      }
+
+      setProfile(data as Profile)
+    } finally {
+      setProfileLoading(false)
+    }
+  }
+
+  const syncSession = async (session: Session | null) => {
+    const nextUser = session?.user ?? null
+    setUser(nextUser)
+
+    if (!nextUser) {
+      lastProfileUserIdRef.current = null
+      setProfile(null)
+      setProfileLoading(false)
+      return
+    }
+
+    if (lastProfileUserIdRef.current !== nextUser.id) {
+      lastProfileUserIdRef.current = nextUser.id
+      setProfile(null)
+    }
+
+    await fetchProfile(nextUser.id)
   }
 
   useEffect(() => {
-    // Cek session awal
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id)
-      setLoading(false)
-    })
+    let isMounted = true
 
-    // Listen perubahan auth
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchProfile(session.user.id)
-      } else {
-        setProfile(null)
+    const init = async () => {
+      setLoading(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!isMounted) return
+      await syncSession(session)
+      if (isMounted) setLoading(false)
+    }
+
+    init()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (!isMounted) return
+        await syncSession(session)
       }
-      setLoading(false)
-    })
+    )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
 const signOut = async () => {
@@ -67,7 +105,7 @@ const signOut = async () => {
 }
 
   return (
-     <AuthContext.Provider value={{ user, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ user, profile, loading, profileLoading, signOut }}>
     {/* Jangan render children sampai loading selesai */}
     {loading ? (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
