@@ -6,36 +6,39 @@ pipeline {
     }
 
     environment {
-        JOB_BASE_NAME   = "${JOB_NAME.split('/').last()}"
+        JOB_BASE_NAME = "${JOB_NAME.split('/').last()}"
 
-        IMAGE_NAME      = "halotamu-frontend"
-        IMAGE_TAG       = "${BUILD_NUMBER}"
-        APP_PORT        = "8082"
+        IMAGE_NAME = "halotamu-frontend"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        APP_PORT = "8082"
 
-        DEPLOY_USER     = "ubuntu"
-        DEPLOY_HOST_A     = "54.82.72.39"
-        DEPLOY_HOST_B     = "54.89.102.198"
+        DEPLOY_USER = "ubuntu"
+        DEPLOY_HOST_A = "54.82.72.39"
+        DEPLOY_HOST_B = "54.89.102.198"
 
-        SSH_KEY_ID      = "deploy-key"
+        SSH_KEY_ID = "deploy-key"
 
-        DOCKER_HUB_USER  = "crobindev"
+        DOCKER_HUB_USER = "crobindev"
         DOCKER_HUB_IMAGE = "${DOCKER_HUB_USER}/${IMAGE_NAME}"
 
         DOCKER_CREDENTIAL_ID = "docker-hub-pat"
     }
 
     stages {
+
         stage('Clone') {
             steps {
                 checkout scm
             }
         }
+
         stage('Debug') {
             steps {
                 sh 'pwd'
                 sh 'ls -R'
             }
         }
+
         stage('Docker Login') {
             steps {
                 withCredentials([
@@ -99,11 +102,9 @@ pipeline {
                             sh """
                                 ssh -o StrictHostKeyChecking=no \
                                 ${DEPLOY_USER}@${host} '
-
-                                    cd opt/halotamu
+                                    cd /opt/halotamu
 
                                     docker compose pull
-
                                     docker compose up -d
 
                                     docker image prune -af
@@ -118,7 +119,6 @@ pipeline {
         stage('Cleanup') {
             steps {
                 script {
-
                     sh 'docker image prune -af || true'
 
                     def hosts = [
@@ -131,7 +131,6 @@ pipeline {
                             sh """
                                 ssh -o StrictHostKeyChecking=no \
                                 ${DEPLOY_USER}@${host} '
-
                                     docker image prune -af || true
                                 '
                             """
@@ -141,48 +140,49 @@ pipeline {
             }
         }
 
+    }
+
     post {
-            always {
-                sh 'docker logout || true'
-            }
 
-            success {
-                echo """
-                =====================================
-                Deploy berhasil
-                Job   : ${JOB_NAME}
-                Build : #${BUILD_NUMBER}
-                Image : ${DOCKER_HUB_IMAGE}:${IMAGE_TAG}
-                Port  : ${APP_PORT}
-                =====================================
-                """
-            }
+        always {
+            sh 'docker logout || true'
+        }
 
-            failure {
-                echo """
-                =====================================
-                Deploy gagal
-                Job   : ${JOB_NAME}
-                Build : #${BUILD_NUMBER}
-                =====================================
-                """
+        success {
+            echo """
+            =====================================
+            Deploy berhasil
+            Job   : ${JOB_NAME}
+            Build : #${BUILD_NUMBER}
+            Image : ${DOCKER_HUB_IMAGE}:${IMAGE_TAG}
+            Port  : ${APP_PORT}
+            =====================================
+            """
+        }
 
-                script {
-                    def hosts = [
-                        DEPLOY_HOST_A,
-                        DEPLOY_HOST_B
-                    ]
+        failure {
+            echo """
+            =====================================
+            Deploy gagal
+            Job   : ${JOB_NAME}
+            Build : #${BUILD_NUMBER}
+            =====================================
+            """
 
-                    sshagent(credentials: [SSH_KEY_ID]) {
-                        hosts.each { host ->
-                            sh """
-                                ssh -o StrictHostKeyChecking=no \
-                                ${DEPLOY_USER}@${host} '
+            script {
+                def hosts = [
+                    DEPLOY_HOST_A,
+                    DEPLOY_HOST_B
+                ]
 
-                                    docker compose -f /opt/halotamu/docker-compose.yml ps || true
-                                '
-                            """
-                        }
+                sshagent(credentials: [SSH_KEY_ID]) {
+                    hosts.each { host ->
+                        sh """
+                            ssh -o StrictHostKeyChecking=no \
+                            ${DEPLOY_USER}@${host} '
+                                docker compose -f /opt/halotamu/docker-compose.yml ps || true
+                            '
+                        """
                     }
                 }
             }
