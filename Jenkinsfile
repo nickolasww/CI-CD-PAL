@@ -10,9 +10,6 @@ pipeline {
 
         IMAGE_NAME      = "halotamu-frontend"
         IMAGE_TAG       = "${BUILD_NUMBER}"
-
-        CONTAINER_NAME  = "${JOB_BASE_NAME}-app"
-
         APP_PORT        = "8082"
 
         DEPLOY_USER     = "ubuntu"
@@ -119,64 +116,75 @@ pipeline {
         }
 
         stage('Cleanup') {
-            sshagent(credentials: [SSH_KEY_ID]) {
-                def hosts = [
-                    DEPLOY_HOST_A,
-                    DEPLOY_HOST_B
-                ]
+            steps {
+                script {
 
-                hosts.each { host ->
-                    sh """
-                        ssh -o StrictHostKeyChecking=no \
-                        ${DEPLOY_USER}@${host} '
+                    sh 'docker image prune -af || true'
 
-                            docker image rm \
-                                ${DOCKER_HUB_IMAGE}:${prevTag} \
-                                || true
-                        '
-                    """
+                    def hosts = [
+                        DEPLOY_HOST_A,
+                        DEPLOY_HOST_B
+                    ]
+
+                    sshagent(credentials: [SSH_KEY_ID]) {
+                        hosts.each { host ->
+                            sh """
+                                ssh -o StrictHostKeyChecking=no \
+                                ${DEPLOY_USER}@${host} '
+
+                                    docker image prune -af || true
+                                '
+                            """
+                        }
                     }
                 }
             }
         }
-    }
 
     post {
+            always {
+                sh 'docker logout || true'
+            }
 
-        always {
-            sh 'docker logout || true'
-        }
-
-        success {
-            echo """
-            =====================================
-            Deploy berhasil
-            Job   : ${JOB_NAME}
-            Build : #${BUILD_NUMBER}
-            Image : ${DOCKER_HUB_IMAGE}:${IMAGE_TAG}
-            Port  : ${APP_PORT}
-            =====================================
-            """
-        }
-
-        failure {
-            echo """
-            =====================================
-            Deploy gagal
-            Job   : ${JOB_NAME}
-            Build : #${BUILD_NUMBER}
-            =====================================
-            """
-
-            sshagent(credentials: [SSH_KEY_ID]) {
-                sh """
-                    ssh -o StrictHostKeyChecking=no \
-                    ${DEPLOY_USER}@${DEPLOY_HOST} '
-
-                        docker stop ${CONTAINER_NAME} || true
-                        docker rm ${CONTAINER_NAME} || true
-                    '
+            success {
+                echo """
+                =====================================
+                Deploy berhasil
+                Job   : ${JOB_NAME}
+                Build : #${BUILD_NUMBER}
+                Image : ${DOCKER_HUB_IMAGE}:${IMAGE_TAG}
+                Port  : ${APP_PORT}
+                =====================================
                 """
+            }
+
+            failure {
+                echo """
+                =====================================
+                Deploy gagal
+                Job   : ${JOB_NAME}
+                Build : #${BUILD_NUMBER}
+                =====================================
+                """
+
+                script {
+                    def hosts = [
+                        DEPLOY_HOST_A,
+                        DEPLOY_HOST_B
+                    ]
+
+                    sshagent(credentials: [SSH_KEY_ID]) {
+                        hosts.each { host ->
+                            sh """
+                                ssh -o StrictHostKeyChecking=no \
+                                ${DEPLOY_USER}@${host} '
+
+                                    docker compose -f /opt/halotamu/docker-compose.yml ps || true
+                                '
+                            """
+                        }
+                    }
+                }
             }
         }
     }
