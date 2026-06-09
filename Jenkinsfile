@@ -103,7 +103,7 @@ pipeline {
                                 ssh -o StrictHostKeyChecking=no \
                                 ${DEPLOY_USER}@${host} '
 
-                                    cd /opt/halotamu
+                                    cd opt/halotamu
 
                                     docker compose pull
 
@@ -119,28 +119,22 @@ pipeline {
         }
 
         stage('Cleanup') {
-            steps {
-                script {
-                    if (BUILD_NUMBER.toInteger() > 1) {
-                        def prevTag = BUILD_NUMBER.toInteger() - 1
+            sshagent(credentials: [SSH_KEY_ID]) {
+                def hosts = [
+                    DEPLOY_HOST_A,
+                    DEPLOY_HOST_B
+                ]
 
-                        sh """
-                            docker rmi \
+                hosts.each { host ->
+                    sh """
+                        ssh -o StrictHostKeyChecking=no \
+                        ${DEPLOY_USER}@${host} '
+
+                            docker image rm \
                                 ${DOCKER_HUB_IMAGE}:${prevTag} \
                                 || true
-                        """
-
-                        sshagent(credentials: [SSH_KEY_ID]) {
-                            sh """
-                                ssh -o StrictHostKeyChecking=no \
-                                ${DEPLOY_USER}@${DEPLOY_HOST} '
-
-                                    docker image rm \
-                                        ${DOCKER_HUB_IMAGE}:${prevTag} \
-                                        || true
-                                '
-                            """
-                        }
+                        '
+                    """
                     }
                 }
             }
