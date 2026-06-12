@@ -1,4 +1,4 @@
-version: "3.9"
+name: Docker Compose for Halotamu App
 
 services:
   app:
