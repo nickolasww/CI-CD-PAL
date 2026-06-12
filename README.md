@@ -1,267 +1,277 @@
-# Hands-On CI/CD dengan Jenkins & Docker
+# Implementasi Pipeline CI/CD Berbasis Jenkins untuk Otomasi Build, Test, dan Deployment pada AWS EC2
 
-> Topik: Continuous Integration / Continuous Deployment
+## Ringkasan Implementasi
 
----
+Dokumentasi ini menjelaskan implementasi pipeline CI/CD menggunakan **Jenkins** untuk mengotomasi proses:
 
-## Materi: Konsep CI/CD & Jenkins
+- build image Docker aplikasi Halotamu
+- pengujian konfigurasi Nginx di container
+- push image ke Docker Hub
+- deploy otomatis ke dua EC2 Instance
 
-### Apa itu CI/CD?
+Arsitektur ini menggunakan:
 
-**CI/CD** adalah praktik pengembangan perangkat lunak modern yang mengotomasi proses integrasi kode, pengujian, dan deployment.
+- 1 Jenkins server yang dijalankan lewat `docker-compose`
+- 2 EC2 Instance target untuk menjalankan aplikasi Halotamu
+- load balancer berbasis **Nginx** yang terhubung melalui IP privat VPC
+- security group dengan aturan port `22`, `443`, `80`, `8082`, dan `ICMPv4`
 
-| Singkatan | Kepanjangan | Pengertian |
-|-----------|-------------|------------|
-| **CI** | Continuous Integration | Praktik menggabungkan (merge) perubahan kode ke repository utama secara sering dan otomatis menjalankan build + test setiap ada perubahan |
-| **CD** | Continuous Delivery | Mengekstensikan CI dengan memastikan kode selalu siap di-deploy ke environment production kapan saja |
-| **CD** | Continuous Deployment | Selangkah lebih jauh — setiap perubahan yang lolos test langsung di-deploy ke production secara otomatis |
 
-```
-Tanpa CI/CD (Manual):             Dengan CI/CD (Otomatis):
-                                  
-Developer → (manual build)        Developer → git push
-         → (manual test)                   → [otomatis] build
-         → (manual upload)                 → [otomatis] test
-         → (manual deploy)                 → [otomatis] deploy
-         ≈ berjam-jam, error-prone         ≈ menit, konsisten
-```
+## Infrastruktur AWS
 
----
+Pengaturan AWS yang digunakan meliputi:
 
-### Apa itu Jenkins?
+- dua EC2 Instance untuk deployment aplikasi Halotamu
+- Nginx sebagai load balancer yang mengarahkan trafik internal melalui private VPC IP
+- security group dengan rule:
+  - port `22` untuk SSH
+  - port `443` untuk HTTPS
+  - port `80` untuk HTTP
+  - port `8082` untuk aplikasi, terbuka dari `0.0.0.0/0`
+  - rule `ICMPv4` untuk `172.31.0.0/16`
 
-**Jenkins** adalah server otomasi open-source berbasis Java yang paling banyak digunakan untuk implementasi CI/CD. Jenkins berfungsi sebagai **orchestrator** — ia mengawasi repository, memicu build, menjalankan test, dan mendistribusikan aplikasi ke server.
 
-#### Sejarah Singkat
-- Awalnya bernama **Hudson**, dibuat oleh Kohsuke Kawaguchi di Sun Microsystems (2004)
-- Berganti nama menjadi **Jenkins** pada 2011 setelah konflik dengan Oracle
-- Saat ini dikelola oleh **Jenkins community** (open-source), diunduh >1 juta kali/bulan
+## Tujuan Implementasi
 
-#### Mengapa Jenkins?
-- **Open-source & gratis** — tidak ada biaya lisensi
-- **Plugin ekosistem luas** — lebih dari 1.800 plugin (Git, Docker, Kubernetes, Slack, dll.)
-- **Fleksibel** — mendukung berbagai bahasa, tools, dan platform
-- **Pipeline as Code** — pipeline didefinisikan dalam file `Jenkinsfile` yang disimpan di Git
-- **Distributed builds** — mendukung arsitektur master-agent untuk build paralel
+1. Menyiapkan Jenkins sebagai server CI/CD
+2. Menyusun pipeline build, test, push, dan deploy
+3. Mengkonfigurasi deployment `docker-compose` pada EC2 target
+4. Menghubungkan GitHub webhook ke Jenkins
 
----
-
-### Komponen Utama Jenkins
+## Arsitektur Sistem
 
 ```
-┌────────────────────────────────────────────────────┐
-│                  Jenkins Server                    │
-│                                                    │
-│  ┌─────────────┐   ┌──────────────┐                │
-│  │   Job /     │   │   Pipeline   │                │
-│  │   Project   │   │  (Jenkinsfile│                │
-│  └─────────────┘   └──────────────┘                │
-│                                                    │
-│  ┌─────────────┐   ┌──────────────┐                │
-│  │  Credentials│   │   Plugins    │                │
-│  │  (SSH, token│   │  (Git, Docker│                │
-│  │   password) │   │   SSH Agent) │                │
-│  └─────────────┘   └──────────────┘                │
-│                                                    │
-│  ┌─────────────────────────────────┐               │
-│  │         Build History           │               │
-│  │  #1 ✓  #2 ✓  #3 ✗  #4 ✓         │               │
-│  └─────────────────────────────────┘               │
-└────────────────────────────────────────────────────┘
+GitHub Repository
+       │
+       ▼
+   Jenkins Server
+   (docker-compose)
+       │
+       │ build, test, push
+       ▼
+ Docker Hub Registry
+       │
+       │ pull image
+       ▼
+┌──────────────────────────────────┐
+│        AWS VPC Private           │
+│  ┌───────────┐   ┌───────────┐   │
+│  │ EC2 A     │   │ EC2 B     │   │
+│  │ halotamu  │   │ halotamu  │   │
+│  └───────────┘   └───────────┘   │
+│         │             │          │
+│         └─────┬───────┘          │
+│               ▼                  │
+│       Nginx Load Balancer        │
+└──────────────────────────────────┘
 ```
 
-| Komponen | Fungsi |
-|----------|--------|
-| **Job / Project** | Unit kerja di Jenkins. Berisi konfigurasi apa yang harus dijalankan |
-| **Pipeline** | Rangkaian stage yang membentuk alur CI/CD, didefinisikan via Jenkinsfile |
-| **Stage** | Satu langkah besar dalam pipeline (misal: Build, Test, Deploy) |
-| **Step** | Perintah spesifik di dalam sebuah stage |
-| **Build** | Satu eksekusi pipeline (Build #1, #2, dst.) |
-| **Workspace** | Direktori di Jenkins server tempat kode di-checkout & di-build |
-| **Credentials** | Penyimpanan aman untuk password, SSH key, API token |
-| **Agent** | Mesin yang menjalankan pipeline (`agent any` = pakai server Jenkins itu sendiri) |
-| **Executor** | Slot eksekusi; satu executor menjalankan satu build pada satu waktu |
-| **Plugin** | Ekstensi untuk menambah kemampuan Jenkins |
 
----
+## Konfigurasi Security Group
 
-### Jenkinsfile: Pipeline as Code
+Gunakan konfigurasi security group berikut:
 
-**Jenkinsfile** adalah file teks (groovy DSL) yang mendefinisikan seluruh alur CI/CD. Disimpan di dalam repository, memungkinkan pipeline di-version control bersama kode aplikasi.
+- `SSH (22)` untuk akses SSH dibuka untuk `0.0.0.0/0`
+- `HTTPS (443)` untuk akses secure ke load balancer dibuka untuk `0.0.0.0/0`
+- `HTTP (80)` untuk akses web standar dibuka untuk `0.0.0.0/0`
+- `APP (8082)` dibuka untuk `0.0.0.0/0`
+- `ICMPv4` diizinkan untuk subnet `172.31.0.0/16`
 
-**Dua syntax Pipeline:**
+
+## Peran Nginx Load Balancer
+
+Nginx load balancer digunakan untuk mengarahkan traffic ke EC2 target melalui IP privat VPC. Dengan konfigurasi ini, trafik internal tetap berada dalam VPC dan hanya port yang diperlukan saja yang dibuka secara publik.
+
+
+## Keterangan Pipeline
+
+Pipeline Jenkins akan menjalankan langkah-langkah berikut:
+
+1. `Clone` kode dari repository Git.
+2. `Docker Login` ke Docker Hub.
+3. `Build` image aplikasi.
+4. `Test` konfigurasi `nginx -t` di dalam container.
+5. `Push Image` ke Docker Hub.
+6. `Deploy` ke dua EC2 host secara paralel.
+7. `Cleanup` image lama pada target.
+
+
+## Catatan Penting
+
+- Nama container target harus `halotamu-app` agar healthcheck dan deployment script konsisten.
+- `.env` di EC2 target harus berisi `IMAGE_NAME` dan `IMAGE_TAG`.
+- Jenkins container memerlukan akses Docker host melalui `/var/run/docker.sock`.
+- SSH key harus tersimpan di Jenkins Credentials sebagai `SSH Username with private key`.
+
+
+## Panduan Setup Jenkins & Deployment Halotamu
+
+### 1. Inisialisasi Jenkins dengan `docker-compose`
+
+Gunakan file `docker-compose.yaml` di root repository untuk menjalankan Jenkins:
+
+```yaml
+version: "3"
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins_sandbox
+    privileged: true
+    restart: unless-stopped
+    environment:
+      - JENKINS_OPTS=--prefix=/jenkins
+    user: root
+    ports:
+      - 8081:8080
+      - 50000:50000
+    volumes:
+      - ${JENKINS_HOME_PATH}:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+    networks:
+      - jenkins_net
+
+networks:
+  jenkins_net:
+    driver: bridge
+```
+
+Jalankan Jenkins pada host dengan perintah:
+
+```bash
+docker compose up -d
+```
+
+> Pastikan `JENKINS_HOME_PATH` sudah di-set di environment host sebelum menjalankan.
+
+
+### 2. Konfigurasi `docker-compose` pada setiap EC2 untuk aplikasi Halotamu
+
+Jenkins pipeline akan menggunakan file `app/docker-compose.yaml` dari repository dan mengirimkannya ke EC2 target sebelum menjalankan deploy.
+
+File `app/docker-compose.yaml` di repository harus berisi template service berikut:
+
+```yaml
+version: "3.9"
+
+services:
+  app:
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: halotamu-app
+    restart: unless-stopped
+
+    ports:
+      - "8082:80"
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+```
+
+Dalam `Jenkinsfile`, file ini akan disalin ke host target di `/opt/halotamu/docker-compose.yml`, lalu Jenkins akan membuat file `.env` di target dengan nilai runtime:
+
+```dotenv
+IMAGE_NAME=${DOCKER_HUB_IMAGE}
+IMAGE_TAG=${IMAGE_TAG}
+```
+
+Jadi kamu tidak perlu membuat `docker-compose.yml` dan `.env` secara manual pada setiap EC2 jika pipeline berhasil menyalin file tersebut.
+
+Namun, jika ingin memelihara file deployment secara manual di EC2, pastikan struktur direktori dan isi file sama seperti di atas.
+
+> `docker compose` akan otomatis mengambil nilai dari `.env` saat file `docker-compose.yml` menggunakan `${IMAGE_NAME}` dan `${IMAGE_TAG}`.
+
+
+### 3. Parameter Jenkins Pipeline yang harus dikonfigurasi
+
+Tambahkan parameter berikut di konfigurasi Pipeline job di Jenkins:
+
+- `APP_PORT` (String Parameter)
+- `DEPLOY_USER` (String Parameter)
+- `DEPLOY_HOST_A` (String Parameter)
+- `DEPLOY_HOST_B` (String Parameter)
+- `SSH_KEY_ID` (Credentials Parameter)
+- `DOCKER_IMAGE` (String Parameter)
+- `DOCKER_HUB_USER` (String Parameter)
+- `DOCKER_CREDENTIAL_ID` (Credentials Parameter)
+
+Pipeline `Jenkinsfile` akan menggunakan parameter tersebut untuk membangun dan mendorong image Docker, lalu melakukan deploy ke dua host target.
+
+Di `Jenkinsfile`, environment yang digunakan adalah:
 
 ```groovy
-// 1. Declarative Pipeline (direkomendasikan, lebih terstruktur)
-pipeline {
-    agent any
-    stages {
-        stage('Build') {
-            steps {
-                sh 'docker build -t myapp .'
-            }
-        }
-    }
-}
-
-// 2. Scripted Pipeline (lebih fleksibel, syntax Groovy penuh)
-node {
-    stage('Build') {
-        sh 'docker build -t myapp .'
-    }
-}
+APP_PORT        = "${params.APP_PORT}"
+DEPLOY_USER     = "${params.DEPLOY_USER}"
+DEPLOY_HOST_A   = "${params.DEPLOY_HOST_A}"
+DEPLOY_HOST_B   = "${params.DEPLOY_HOST_B}"
+SSH_KEY_ID      = "${params.SSH_KEY_ID}"
+IMAGE_NAME      = "${params.DOCKER_IMAGE}"
+DOCKER_HUB_USER  = "${params.DOCKER_HUB_USER}"
+DOCKER_HUB_IMAGE = "${DOCKER_HUB_USER}/${IMAGE_NAME}"
+DOCKER_CREDENTIAL_ID = "${params.DOCKER_CREDENTIAL_ID}"
 ```
 
-> Lab ini menggunakan **Declarative Pipeline**.
+### 4. Membangun dan menjalankan pipeline
+
+1. Push `Jenkinsfile` dan kode aplikasi ke repository Git.
+2. Buka job Jenkins yang menggunakan pipeline ini.
+3. Klik `Build with Parameters`.
+4. Isi nilai parameter sesuai environment:
+   - `APP_PORT`: `8082`
+   - `DEPLOY_USER`: user SSH target
+   - `DEPLOY_HOST_A`: IP atau hostname EC2 pertama
+   - `DEPLOY_HOST_B`: IP atau hostname EC2 kedua
+   - `SSH_KEY_ID`: credential SSH yang sudah terdaftar
+   - `DOCKER_IMAGE`: `halo-tamu`
+   - `DOCKER_HUB_USER`: Docker Hub username
+   - `DOCKER_CREDENTIAL_ID`: credential Docker Hub username/password
+5. Jalankan build.
+
+Jika build berhasil, Jenkins akan membangun image, menjalankan `nginx -t` di container sementara, lalu mendorong image ke Docker Hub dan SSH ke host target untuk menjalankan `docker compose pull` serta `docker compose up -d`.
+
+
+### 5. Konfigurasi GitHub Webhook dan SCM trigger di Jenkins
+
+Agar Jenkins dapat dipicu otomatis saat ada push GitHub, lakukan langkah berikut:
+
+1. Di GitHub repository, buka `Settings > Webhooks > Add webhook`.
+2. Set `Payload URL` ke alamat Jenkins:
+   - `http://<jenkins-host>:8081/jenkins/github-webhook/`
+3. Set `Content type` ke `application/json`.
+4. Pilih event `Just the push event` atau sesuai kebutuhan.
+5. Simpan webhook.
+
+Di Jenkins job konfigurasi:
+
+1. Buka job pipeline.
+2. Pilih `Configure`.
+3. Di bagian `Build Triggers`, centang:
+   - `GitHub hook trigger for GITScm polling`
+
+> Jika menggunakan Declarative Pipeline dengan `Pipeline script from SCM`, pastikan SCM sudah diatur ke repository GitHub yang benar dan kredensial Git sudah terpasang.
+
+
+### 6. Catatan penting
+
+- Pastikan EC2 target sudah terpasang Docker dan Docker Compose.
+- Pastikan `jenkins` container memiliki akses ke Docker host melalui `/var/run/docker.sock` dan `/usr/bin/docker`.
+- Pastikan `SSH_KEY_ID` Jenkins adalah credential `SSH Username with private key` yang dapat login ke setiap EC2 target.
+- Nama container target di `docker-compose.yml` harus `halotamu-app` agar pipeline deployment dan healthcheck sesuai konfigurasi.
+- Untuk debugging, lihat log stage `Debug` di Jenkins dan cek output `docker compose pull`, `docker compose up -d`, serta `docker inspect`.
 
 ---
 
-### Jenis-Jenis Job di Jenkins
+## Referensi singkat
 
-| Jenis | Keterangan | Kapan Digunakan |
-|-------|------------|-----------------|
-| **Freestyle Project** | Job klasik, konfigurasi via UI | Tugas sederhana, tidak butuh pipeline kompleks |
-| **Pipeline** | Job berbasis Jenkinsfile | CI/CD modern, direkomendasikan |
-| **Multibranch Pipeline** | Otomatis membuat pipeline per branch | Proyek dengan banyak branch (GitFlow) |
-| **Folder** | Mengelompokkan job | Organisasi proyek besar |
-| **GitHub Organization** | Scan semua repo dalam org GitHub | Enterprise / organisasi besar |
-
-> Lab ini menggunakan job **Pipeline**.
-
----
-
-### Build Triggers (Cara Memicu Pipeline)
-
-```
-1. Manual          → Klik "Build Now" di Jenkins UI
-                     
-2. Poll SCM        → Jenkins aktif memeriksa Git secara berkala
-   (H/5 * * * *)     (setiap 5 menit, cek ada commit baru?)
-                     
-3. Webhook         → GitHub/GitLab push → kirim HTTP POST ke Jenkins
-   (paling cepat)    Jenkins langsung bereaksi dalam hitungan detik
-                     
-4. Trigger dari    → Pipeline lain memanggil pipeline ini
-   pipeline lain     (pipeline chain / upstream-downstream)
-                     
-5. Jadwal          → Seperti cron job, build pada waktu tertentu
-   (H 2 * * 1-5)     (misalnya: setiap hari kerja jam 02.00)
-```
-
----
-
-### Credentials Management
-
-Jenkins menyediakan **Credentials Store** yang aman untuk menyimpan informasi sensitif. Credential **tidak pernah** ditampilkan plain-text di log.
-
-| Tipe Credential | Contoh Penggunaan |
-|-----------------|-------------------|
-| `Username with password` | Login Docker Hub, akun Git private |
-| `SSH Username with private key` | Deploy ke server via SSH |
-| `Secret text` | API token, webhook secret |
-| `Certificate` | Client certificate untuk koneksi aman |
-
-Dalam Jenkinsfile, credential dipanggil dengan:
-```groovy
-// Menggunakan SSH key
-sshagent(credentials: ['deploy-ssh-key']) {
-    sh 'ssh deploy@10.34.100.178 "docker ps"'
-}
-
-// Menggunakan username/password
-withCredentials([usernamePassword(
-    credentialsId: 'dockerhub-credentials',
-    usernameVariable: 'USER',
-    passwordVariable: 'PASS'
-)]) {
-    sh 'docker login -u $USER -p $PASS'
-}
-```
-
----
-
-### Post Actions & Notifikasi
-
-Blok `post` dijalankan setelah semua stage selesai, tergantung kondisi hasil build:
-
-```groovy
-post {
-    always   { ... }  // Selalu dijalankan (cleanup, archive)
-    success  { ... }  // Hanya jika pipeline SUKSES
-    failure  { ... }  // Hanya jika pipeline GAGAL
-    unstable { ... }  // Jika ada test yang gagal tapi build sukses
-    changed  { ... }  // Jika status berubah dari build sebelumnya
-}
-```
-
----
-
-### Perbandingan Jenkins vs Tools CI/CD Lain
-
-| Fitur | Jenkins | GitHub Actions | GitLab CI | CircleCI |
-|-------|---------|----------------|-----------|----------|
-| Open-source | ✓ | ✗ (proprietary) | ✓ (partial) | ✗ |
-| Self-hosted | ✓ | ✓ (runner) | ✓ | ✓ (runner) |
-| Cloud-hosted | ✗ (perlu setup) | ✓ | ✓ | ✓ |
-| Plugin ekosistem | ✓✓✓ (1800+) | ✓✓ (marketplace) | ✓ | ✓ |
-| Kurva belajar | Sedang | Rendah | Rendah | Rendah |
-| Cocok untuk | On-premise, enterprise | Open-source, GitHub | GitLab user | Tim kecil-menengah |
-
-> Jenkins unggul untuk **on-premise deployment** dan lingkungan yang membutuhkan kontrol penuh atas infrastruktur — cocok untuk skenario DevSecOps di production environment sendiri.
-
----
-
-## Deskripsi Lab
-
-Pada lab ini, kamu akan membangun pipeline CI/CD menggunakan **Jenkins** untuk men-deploy aplikasi web berbasis container ke beberapa server secara otomatis.
-
-### Arsitektur Sistem
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Developer                                │
-│                    (push code ke Git)                           │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ webhook / polling
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              VM-0: Jenkins Server (10.34.100.189)              │
-│  ┌──────────────┐  ┌────────────────┐  ┌────────────────────┐  │
-│  │   Jenkins    │  │  Docker        │  │  SSH Key / Agent   │  │
-│  │  (port 8080) │  │  (build image) │  │  (deploy ke VMs)   │  │
-│  └──────────────┘  └────────────────┘  └────────────────────┘  │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ SSH Deploy
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│   VM-1       │  │   VM-2       │  │   VM-3       │
-│ App Server 1 │  │ App Server 2 │  │ App Server 3 │
-│10.34.100.178│  │10.34.100.179│  │10.34.100.180│
-│ Docker       │  │ Docker       │  │ Docker       │
-│ [web-app]    │  │ [web-app]    │  │ [web-app]    │
-└──────────────┘  └──────────────┘  └──────────────┘
-          
-          ┌──────────────┐
-          │   VM-4       │
-          │ App Server 4 │
-          │10.34.100.181│
-          │ Docker       │
-          │ [web-app]    │
-          └──────────────┘
-```
-
-### Spesifikasi VM
-
-| VM   | Nama Host          | IP Address       | RAM  | CPU | Peran              |
-|------|--------------------|------------------|------|-----|--------------------|
-| VM-0 | jenkins-server     | 10.34.100.200   | 2 GB | 2   | Jenkins CI/CD      |
-| VM-1 | app-server-1       | 10.34.100.178   | 1 GB | 1   | App Node 1         |
-| VM-2 | app-server-2       | 10.34.100.179   | 1 GB | 1   | App Node 2         |
-| VM-3 | app-server-3       | 10.34.100.180   | 1 GB | 1   | App Node 3         |
-| VM-4 | app-server-4       | 10.34.100.181   | 1 GB | 1   | App Node 4         |
-
-> OS: Ubuntu 22.04 LTS (semua VM)
+- `docker compose up -d` → jalankan service di background
+- `docker compose pull` → ambil image terbaru dari registry
+- `docker compose up -d` → jalankan container berdasarkan update image
+- `docker inspect --format='{{.State.Health.Status}}' halotamu-app` → cek status health container
+- `GitHub hook trigger for GITScm polling` → aktivasi webhook push GitHub
 
 ---
 
@@ -271,70 +281,32 @@ Pada lab ini, kamu akan membangun pipeline CI/CD menggunakan **Jenkins** untuk m
 Code Push
     │
     ▼
-[Stage 1: Checkout]
-    │  Clone repo dari Git
+[Stage 1: Clone]
+    │  Checkout repository dari SCM
     ▼
-[Stage 2: Build]
-    │  Build Docker image
+[Stage 2: Debug]
+    │  Verifikasi workspace dan file
     ▼
-[Stage 3: Test]
-    │  Jalankan unit test dalam container
+[Stage 3: Docker Login]
+    │  Login ke Docker Hub dengan credential
     ▼
-[Stage 4: Push Image]
-    │  Push image ke Docker Hub / Registry
+[Stage 4: Build]
+    │  Build Docker image dari ./app
     ▼
-[Stage 5: Deploy]
-    │  SSH ke 4 VM, pull & run container baru
+[Stage 5: Test]
+    │  Jalankan nginx -t dalam container hasil build
     ▼
-[Stage 6: Health Check]
-    │  Verifikasi container berjalan
+[Stage 6: Push Image]
+    │  Push image ke Docker Hub dengan tag build number
     ▼
-[Notifikasi Selesai]
+[Stage 7: Deploy]
+    │  SCP docker-compose.yml dan deploy ke 2 EC2 target
+    ▼
+[Stage 8: Cleanup]
+    │  Prune image lama di target
+    ▼
+[Post: Notification]
+    │  Log sukses / gagal dan aksi tambahan
 ```
 
----
 
-## Struktur File Lab
-
-```
-CI:CD/
-├── README.md                    ← Dokumen ini
-├── 01-setup-jenkins.md          ← Panduan instalasi Jenkins
-├── 02-setup-app-servers.md      ← Panduan setup App Server
-├── 03-jenkins-configuration.md  ← Konfigurasi Jenkins & credentials
-├── 04-pipeline-walkthrough.md   ← Penjelasan pipeline & Jenkinsfile
-├── app/
-│   ├── Dockerfile               ← Docker image untuk web app
-│   ├── app.py                   ← Aplikasi web (Flask)
-│   ├── requirements.txt         ← Python dependencies
-│   ├── templates/
-│   │   └── index.html           ← Halaman web
-│   └── tests/
-│       └── test_app.py          ← Unit tests
-├── jenkins/
-│   ├── Jenkinsfile              ← Pipeline script
-│   └── jenkins-plugins.txt      ← Daftar plugin Jenkins
-└── scripts/
-    ├── setup-jenkins.sh         ← Script otomatis setup Jenkins VM
-    ├── setup-appserver.sh       ← Script otomatis setup App VM
-    └── deploy.sh                ← Script deploy ke App VM
-```
-
----
-
-## Prasyarat
-
-- Hypervisor: VirtualBox / VMware / Proxmox / cloud (GCP/AWS)
-- 5 VM Ubuntu 22.04 LTS sudah berjalan dan bisa saling berkomunikasi
-- Akses internet dari semua VM
-- Akun Docker Hub (gratis)
-- Akun GitHub / GitLab (gratis)
-
----
-
-## Mulai Dari Sini
-
-1. [01 - Setup Jenkins Server](01-setup-jenkins.md)
-2. [02 - Setup App Servers](02-setup-app-servers.md)
-3. [03 - Konfigurasi Jenkins](03-jenkins-configuration.md)
-4. [04 - Pipeline Walkthrough](04-pipeline-walkthrough.md)
