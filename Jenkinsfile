@@ -103,7 +103,7 @@ pipeline {
                                 sh """
                                     ssh -o StrictHostKeyChecking=no \
                                         -o ConnectTimeout=15 \
-                                        ${DEPLOY_USER}@${currentHost} 'mkdir -p /opt/halotamu'
+                                        ${DEPLOY_USER}@${currentHost} 'sudo mkdir -p opt/halotamu'
 
                                     scp -o StrictHostKeyChecking=no \
                                         app/docker-compose.yaml \
@@ -114,12 +114,12 @@ pipeline {
                                         ${DEPLOY_USER}@${currentHost} '
                                             set -e
 
-                                            cat > /opt/halotamu/.env <<'EOF'
+                                            cat > opt/halotamu/.env <<'EOF'
                                             IMAGE_NAME=${DOCKER_HUB_IMAGE}
                                             IMAGE_TAG=latest
                                             EOF
 
-                                            cd /opt/halotamu
+                                            cd opt/halotamu
 
                                             docker compose pull
                                             docker compose up -d
