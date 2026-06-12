@@ -309,4 +309,102 @@ Code Push
     │  Log sukses / gagal dan aksi tambahan
 ```
 
+---
+
+## Testing
+
+### 1. Verifikasi Container Health
+
+Setelah deployment selesai, pipeline akan melakukan health check otomatis menggunakan `docker inspect`:
+
+```bash
+STATUS=$(docker inspect --format='{{.State.Health.Status}}' halotamu-app)
+echo "Health Status: $STATUS"
+[ "$STATUS" = "healthy" ]
+```
+
+Health check ini memverifikasi bahwa container dapat merespons HTTP request pada port `80` dalam waktu 15 detik (start_period), dengan interval 30 detik, timeout 10 detik, dan maksimal 3 retry.
+
+### 2. Load Balancer Validation dengan Curl
+
+Validasi bahwa load balancer Nginx mendistribusikan traffic ke kedua EC2 target menggunakan curl:
+
+```bash
+for i in {1..10}; do 
+  echo -n "Request $i -> " 
+  curl -sI http://<load-balancer-ip> | grep "X-Upstream-Server"
+done
+```
+
+Pastikan header `X-Upstream-Server` menampilkan IP dari EC2 instance yang berbeda-beda untuk memverifikasi load balancing berjalan.
+
+### 3. K6 Load Testing
+
+Repository ini menyertakan file `app/k6-loadtest.js` untuk melakukan load testing terhadap aplikasi.
+
+**Instalasi k6:**
+
+```bash
+# Debian/Ubuntu
+curl https://dl.k6.io/install/linux.sh | sudo bash
+
+# macOS
+brew install k6
+```
+
+**Menjalankan load test dasar:**
+
+```bash
+k6 run app/k6-loadtest.js --vus 10 --duration 30s
+```
+
+**Dengan environment variable untuk target spesifik:**
+
+```bash
+k6 run app/k6-loadtest.js \
+  --vus 10 \
+  --duration 30s \
+  -e BASE_URL=http://<load-balancer-ip>
+```
+
+**Dengan Supabase authentication (opsional):**
+
+```bash
+k6 run app/k6-loadtest.js \
+  --vus 20 \
+  --duration 60s \
+  -e BASE_URL=http://<load-balancer-ip> \
+  -e SUPABASE_URL=https://your-supabase-url \
+  -e SUPABASE_ANON_KEY=your-anon-key \
+  -e TEST_USER_EMAIL=test@example.com \
+  -e TEST_USER_PASSWORD=password \
+  -e ENABLE_SUPABASE=1
+```
+
+**Metrik yang diuji:**
+
+- `errors` — tingkat error request (threshold: < 5%)
+- `http_req_duration` — response time p95 (threshold: < 800ms)
+- Homepages load (`/` dan `/login`)
+- Admin authentication flow
+- Guest list retrieval
+- Guest creation
+- Guest search functionality
+
+
+### 4. Nginx Configuration Test
+
+Pipeline sudah melakukan test `nginx -t` secara otomatis pada stage `Test`. Ini memverifikasi bahwa file konfigurasi Nginx valid sebelum container berjalan.
+
+### 5. Debugging Deployment Failures
+
+Jika deployment gagal, pipeline akan menjalankan `docker compose ps` pada target untuk diagnostik:
+
+```bash
+docker compose -f /opt/halotamu/docker-compose.yml ps
+```
+
+Lihat log lengkap di Jenkins untuk melihat output SSH dan container status.
+
+---
 
