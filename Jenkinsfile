@@ -101,13 +101,25 @@ pipeline {
                             deployJobs["Deploy-${currentHost}"] = {
 
                                 sh """
-                                    ssh \
-                                        -o StrictHostKeyChecking=no \
+                                    ssh -o StrictHostKeyChecking=no \
+                                        -o ConnectTimeout=15 \
+                                        ${DEPLOY_USER}@${currentHost} 'mkdir -p /opt/halotamu'
+
+                                    scp -o StrictHostKeyChecking=no \
+                                        app/docker-compose.yaml \
+                                        ${DEPLOY_USER}@${currentHost}:~/opt/halotamu/docker-compose.yml
+
+                                    ssh -o StrictHostKeyChecking=no \
                                         -o ConnectTimeout=15 \
                                         ${DEPLOY_USER}@${currentHost} '
                                             set -e
 
-                                            cd opt/halotamu
+                                            cat > /opt/halotamu/.env <<'EOF'
+                                            IMAGE_NAME=${DOCKER_HUB_IMAGE}
+                                            IMAGE_TAG=latest
+                                            EOF
+
+                                            cd /opt/halotamu
 
                                             docker compose pull
                                             docker compose up -d

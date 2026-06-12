@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  app:
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: halotamu-app
+    restart: unless-stopped
+
+    ports:
+      - "8082:80"
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

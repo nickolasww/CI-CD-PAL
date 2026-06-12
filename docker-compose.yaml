@@ -1,0 +1,24 @@
+version: "3"
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins_sandbox
+    privileged: true
+    restart: unless-stopped
+    environment:
+      - JENKINS_OPTS=--prefix=/jenkins
+    user: root
+    ports:
+      - 8081:8080
+      - 50000:50000
+    volumes:
+      - ${JENKINS_HOME_PATH}:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock  # host Docker daemon
+      - /usr/bin/docker:/usr/bin/docker
+    networks:
+      - jenkins_net
+
+networks:
+  jenkins_net:
+    driver: bridge
