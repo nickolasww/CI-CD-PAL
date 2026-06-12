@@ -103,7 +103,11 @@ pipeline {
                                 sh """
                                     ssh -o StrictHostKeyChecking=no \
                                         -o ConnectTimeout=15 \
-                                        ${DEPLOY_USER}@${currentHost} 'sudo mkdir -p opt/halotamu'
+                                        ${DEPLOY_USER}@${currentHost} 'mkdir -p ~/opt/halotamu 
+                                         if [ -f ~/opt/halotamu/docker-compose.yaml ]; then
+                                            sudo chown ubuntu:ubuntu ~/opt/halotamu/docker-compose.yaml
+                                        fi
+                                        '
 
                                     scp -o StrictHostKeyChecking=no \
                                         app/docker-compose.yaml \
