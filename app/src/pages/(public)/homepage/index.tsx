@@ -214,7 +214,7 @@ export default function HomePage() {
             <h1 className="text-5xl md:text-6xl font-bold text-white leading-tight mb-4">
               Selamat Datang di
               <br />
-              <span className="text-emerald-400">Buku Tamu - Tes</span>
+              <span className="text-emerald-400">Buku Tamu</span>
             </h1>
             <p className="text-emerald-100/70 text-lg leading-relaxed">
               Daftarkan kedatangan Anda dengan mudah dan cepat. Tidak perlu akun,
