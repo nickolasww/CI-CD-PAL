@@ -3,25 +3,22 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
+        timeout(time: 10, unit: 'MINUTES')
     }
 
     environment {
         JOB_BASE_NAME   = "${JOB_NAME.split('/').last()}"
-
-        IMAGE_NAME      = "halotamu-frontend"
         IMAGE_TAG       = "${BUILD_NUMBER}"
-        APP_PORT        = "8082"
-
-        DEPLOY_USER     = "ubuntu"
-        DEPLOY_HOST_A     = "54.82.72.39"
-        DEPLOY_HOST_B     = "54.89.102.198"
-
-        SSH_KEY_ID      = "deploy-key"
-
-        DOCKER_HUB_USER  = "crobindev"
+        APP_PORT        = "${params.APP_PORT}"
+        DEPLOY_USER     = "${params.DEPLOY_USER}"
+        DEPLOY_HOST_A   = "${params.DEPLOY_HOST_A}"
+        DEPLOY_HOST_B   = "${params.DEPLOY_HOST_B}"
+        SSH_KEY_ID      = "${params.SSH_KEY_ID}"
+        IMAGE_NAME      = "${params.DOCKER_IMAGE}"
+        DOCKER_HUB_USER  = "${params.DOCKER_HUB_USER}"
         DOCKER_HUB_IMAGE = "${DOCKER_HUB_USER}/${IMAGE_NAME}"
+        DOCKER_CREDENTIAL_ID = "${params.DOCKER_CREDENTIAL_ID}"
 
-        DOCKER_CREDENTIAL_ID = "docker-hub-pat"
     }
 
     stages {
@@ -94,22 +91,43 @@ pipeline {
                         DEPLOY_HOST_B
                     ]
 
+                    def deployJobs = [:]
+
                     sshagent(credentials: [SSH_KEY_ID]) {
+
                         hosts.each { host ->
-                            sh """
-                                ssh -o StrictHostKeyChecking=no \
-						        ${DEPLOY_USER}@${host} '
 
-							        cd opt/halotamu
+                            def currentHost = host
 
-                                    docker compose pull
+                            deployJobs["Deploy-${currentHost}"] = {
 
-                                    docker compose up -d
+                                sh """
+                                    ssh \
+                                        -o StrictHostKeyChecking=no \
+                                        -o ConnectTimeout=15 \
+                                        ${DEPLOY_USER}@${currentHost} '
+                                            set -e
 
-                                    docker image prune -af
-                                '
-                            """
+                                            cd opt/halotamu
+
+                                            docker compose pull
+                                            docker compose up -d
+
+                                            sleep 10
+
+                                            STATUS=$(docker inspect \
+                                                --format='{{.State.Health.Status}}' \
+                                                halotamu-app)
+
+                                            echo "Health Status: $STATUS"
+
+                                            [ "$STATUS" = "healthy" ]
+                                        '
+                                """
+                            }
                         }
+
+                        parallel deployJobs
                     }
                 }
             }
@@ -118,9 +136,6 @@ pipeline {
         stage('Cleanup') {
             steps {
                 script {
-
-                    sh 'docker image prune -af || true'
-
                     def hosts = [
                         DEPLOY_HOST_A,
                         DEPLOY_HOST_B
@@ -130,6 +145,7 @@ pipeline {
                         hosts.each { host ->
                             sh """
                                 ssh -o StrictHostKeyChecking=no \
+                                    -o ConnectTimeout=15 \
                                 ${DEPLOY_USER}@${host} '
 
                                     docker image prune -af || true
@@ -178,6 +194,7 @@ pipeline {
                     hosts.each { host ->
                         sh """
                             ssh -o StrictHostKeyChecking=no \
+                                -o ConnectTimeout=15 \
                             ${DEPLOY_USER}@${host} '
 
                                 docker compose -f /opt/halotamu/docker-compose.yml ps || true
