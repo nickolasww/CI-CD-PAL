@@ -115,13 +115,13 @@ pipeline {
 
                                             sleep 10
 
-                                            STATUS=$(docker inspect \
+                                            STATUS=\$(docker inspect \
                                                 --format='{{.State.Health.Status}}' \
                                                 halotamu-app)
 
-                                            echo "Health Status: $STATUS"
+                                            echo "Health Status: \$STATUS"
 
-                                            [ "$STATUS" = "healthy" ]
+                                            [ "\$STATUS" = "healthy" ]
                                         '
                                 """
                             }
