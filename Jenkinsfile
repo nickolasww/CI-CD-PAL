@@ -197,7 +197,7 @@ pipeline {
                                 -o ConnectTimeout=15 \
                             ${DEPLOY_USER}@${host} '
 
-                                docker compose -f /opt/halotamu/docker-compose.yml ps || true
+                                docker compose -f opt/halotamu/docker-compose.yml ps || true
                             '
                         """
                     }
