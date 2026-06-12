@@ -107,7 +107,7 @@ pipeline {
 
                                     scp -o StrictHostKeyChecking=no \
                                         app/docker-compose.yaml \
-                                        ${DEPLOY_USER}@${currentHost}:~/opt/halotamu/docker-compose.yml
+                                        ${DEPLOY_USER}@${currentHost}:~/opt/halotamu/docker-compose.yaml
 
                                     ssh -o StrictHostKeyChecking=no \
                                         -o ConnectTimeout=15 \
@@ -208,7 +208,7 @@ pipeline {
                                 -o ConnectTimeout=15 \
                             ${DEPLOY_USER}@${host} '
 
-                                docker compose -f opt/halotamu/docker-compose.yml ps || true
+                                docker compose -f opt/halotamu/docker-compose.yaml ps || true
                             '
                         """
                     }
