@@ -18,7 +18,6 @@ pipeline {
         DOCKER_HUB_USER  = "${params.DOCKER_HUB_USER}"
         DOCKER_HUB_IMAGE = "${DOCKER_HUB_USER}/${IMAGE_NAME}"
         DOCKER_CREDENTIAL_ID = "${params.DOCKER_CREDENTIAL_ID}"
-
     }
 
     stages {
