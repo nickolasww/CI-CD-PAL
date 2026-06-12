@@ -118,10 +118,8 @@ pipeline {
                                         ${DEPLOY_USER}@${currentHost} '
                                             set -e
 
-                                            cat > opt/halotamu/.env <<'EOF'
-                                            IMAGE_NAME=${DOCKER_HUB_IMAGE}
-                                            IMAGE_TAG=latest
-                                            EOF
+                                            echo "IMAGE_NAME=${DOCKER_HUB_IMAGE}" > ~/opt/halotamu/.env
+                                            echo "IMAGE_TAG=latest" >> ~/opt/halotamu/.env
 
                                             cd opt/halotamu
 
