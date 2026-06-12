@@ -14,7 +14,7 @@ pipeline {
         DEPLOY_HOST_A   = "${params.DEPLOY_HOST_A}"
         DEPLOY_HOST_B   = "${params.DEPLOY_HOST_B}"
         SSH_KEY_ID      = "${params.SSH_KEY_ID}"
-        IMAGE_NAME      = "${params.DOCKER_IMAGE}"
+        IMAGE_NAME      = "${params.IMAGE_NAME}"
         DOCKER_HUB_USER  = "${params.DOCKER_HUB_USER}"
         DOCKER_HUB_IMAGE = "${DOCKER_HUB_USER}/${IMAGE_NAME}"
         DOCKER_CREDENTIAL_ID = "${params.DOCKER_CREDENTIAL_ID}"
